@@ -6,6 +6,7 @@ import time
 import pandas as pd
 import plotly.graph_objects as go # 核心绘图库
 import matplotlib.pyplot as plt # 备用绘图库    
+import os
 
 # ==========================================
 # 0. 页面全局配置
@@ -18,15 +19,20 @@ st.set_page_config(
 )
 
 # ==========================================
-# 1. 侧边栏
+# 1. 侧边栏 (个人信息 + 参数)
 # ==========================================
 with st.sidebar:
-    st.image("https://api.dicebear.com/9.x/avataaars/svg?seed=Felix", width=100) 
-    st.markdown("## 👨‍💻 关于开发者 (About Me)")
+    avatar_path = "avatar.png" 
+    if os.path.exists(avatar_path):
+        st.image(avatar_path, width=120, caption="李宏光")
+    else:
+        st.image("https://api.dicebear.com/9.x/notionists/svg?seed=LiHongguang&backgroundColor=e5e5e5", width=120)
+        
+    st.markdown("## 👨‍💻 关于开发者")
     
     st.info("""
     **姓名**：李宏光
-
+    
     **学校**：南京邮电大学 (硕士研究生)
     
     **专业**：计算数学
@@ -51,7 +57,7 @@ with st.sidebar:
     st.caption("© 2024 PINN Battery Project.")
 
 # ==========================================
-# 2. 核心类与函数
+# 2. 核心类与函数 (保持不变)
 # ==========================================
 @st.cache_resource
 def get_device():
@@ -160,26 +166,45 @@ with tab1:
     }
     ''')
 
-# --- TAB 2: 技术 ---
+# --- TAB 2: 技术 (新增详细解释) ---
 with tab2:
     st.header("2. 核心技术详解")
-    with st.expander("📌 技术点 1: 混合损失函数与自动微分 (Physics-Informed Loss)", expanded=True):
-        st.markdown(r"""
-        我们不依赖大量标签数据，而是将**热传导方程 (Heat Equation)** 嵌入到 Loss 函数中：
-        
-        $$
-        \mathcal{L} = \underbrace{\frac{1}{N}\sum_{i=1}^{N}(u_{pred} - u_{sensor})^2}_{\text{Data Loss (观测误差)}} + \lambda \cdot \underbrace{\frac{1}{M}\sum_{j=1}^{M}(u_t - \alpha u_{xx})^2}_{\text{PDE Loss (物理残差)}}
-        $$
-        
-        *   **原理**：公式前半部分保证预测值逼近传感器数据，后半部分强制预测值满足物理方程。
-        *   **实现**：利用 PyTorch 的 `torch.autograd` 实现无网格自动微分，避免了网格生成带来的计算开销。
-        """)
-    with st.expander("📌 技术点 2: 参数自适应反演", expanded=True):
-        st.markdown(r"将热扩散系数 $\alpha$ (SOH相关) 设为可训练变量：`self.alpha = nn.Parameter(...)`，在训练中自动逼近真实物理值。")
-    with st.expander("📌 技术点 3: 抗噪优化策略", expanded=True):
-        st.markdown("采用 **Adam + L-BFGS** 两阶段训练，并动态调整物理权重 $\lambda$，有效抵抗传感器噪声。")
+    st.markdown("本项目通过三大核心技术，解决了在数据稀疏和含噪条件下的反问题求解。")
+    
+    # ----------------------------
+    # 新增：详细解释方程原理
+    # ----------------------------
+    st.markdown("### 🌡️ 物理控制方程：一维瞬态热传导 (Heat Equation)")
+    st.markdown("这是本项目“隔空打牛”（通过表面算内部）的数学基石：")
+    
+    st.latex(r"\frac{\partial u}{\partial t} = \alpha \cdot \frac{\partial^2 u}{\partial x^2}")
+    
+    st.info("""
+    **公式解读**：
+    *   $u(x,t)$：代表温度场。
+    *   $\\frac{\\partial u}{\\partial t}$：温度随时间的变化率（升温/降温速度）。
+    *   $\\frac{\\partial^2 u}{\\partial x^2}$：温度在空间上的曲率（热量从高温向低温扩散的梯度）。
+    *   **$\\alpha$ (热扩散系数)**：这是最关键的参数，决定了热量传导的快慢。
+    
+    **💡 为什么能从外部算内部？**
+    想象一根铁棒，我们只加热一端（外部），另一端（内部）怎么热起来，是**严格受这个方程控制**的。
+    PINN 神经网络通过**Data Loss**记住了外部的温度变化，同时通过**PDE Loss**强迫内部的温度分布必须符合上述方程。因此，内部温度不是瞎猜的，是**物理定律推导**出来的唯一解。
+    """)
+    
+    st.markdown("---")
 
-# --- TAB 3: 3D 电池演示---
+    with st.expander("📌 技术点 1: 混合损失函数 (Physics-Informed Loss)", expanded=True):
+        st.markdown(r"""
+        $$
+        \mathcal{L} = \underbrace{\frac{1}{N}\sum(u_{pred} - u_{sensor})^2}_{\text{Data Loss (数据拟合)}} + \lambda \cdot \underbrace{\frac{1}{M}\sum(u_t - \alpha u_{xx})^2}_{\text{PDE Loss (物理一致性)}}
+        $$
+        """)
+    with st.expander("📌 技术点 2: 参数自适应反演 (SOH Estimation)", expanded=True):
+        st.markdown(r"将热扩散系数 $\alpha$ 设为可训练变量。在训练中，网络会自动寻找最佳的 $\alpha$ 值，使其既符合观测数据，又符合物理方程。")
+    with st.expander("📌 技术点 3: 抗噪优化策略", expanded=True):
+        st.markdown("采用 Adam + L-BFGS 两阶段训练，配合动态权重 $\lambda$，抵抗传感器噪声。")
+
+# --- TAB 3: 3D 电池演示 (新增：为什么需要反演) ---
 with tab3:
     st.header("3. 工业级数字孪生与验证 (Industrial Digital Twin)")
     st.markdown("本模块模拟 **21700 圆柱形锂电池** 的热场重构。包含 **全过程训练监控** -> **3D 交互式监测** -> **精度验证报告**。")
@@ -188,178 +213,137 @@ with tab3:
         st.session_state['trained'] = False
 
     # ==========================================
-    # 模块 1: 模型训练 (带详细监控)
+    # 模块 1: 模型训练
     # ==========================================
     st.subheader("Step 1: 模型训练与参数反演 (Training)")
     
+    # --- 新增：解释为什么第一步要做参数反演 ---
+    st.warning("""
+    **🤔 为什么第一步必须是“参数反演”？**
+    
+    因为电池在使用过程中（老化），其内部化学性质变化会导致**热扩散系数 $\\alpha$** 发生漂移（即 **SOH 健康状态**下降）。
+    *   如果我们直接用出厂参数计算，预测结果会严重失真。
+    *   **本系统的创新点**：在计算温度前，先利用实测数据**反向推算**出当前的 $\\alpha$ 值（相当于给电池做了一次体检），确保后续的温度预测是基于电池**真实健康状态**的。
+    """)
+    
     if st.button("🚀 启动数字孪生求解器 (Start Solver)", type="primary"):
-        # 1. 数据准备
         X, T, u_true, X_star, X_train, u_train, X_f = generate_data(true_alpha, noise_level)
-        
-        # 2. 模型初始化
         model = PINN().to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         
-        # 3. 实时监控仪表盘 (恢复之前的详细显示)
         col_epoch, col_loss, col_alpha, col_err = st.columns(4)
-        metric_epoch = col_epoch.empty()
-        metric_loss = col_loss.empty()
-        metric_alpha = col_alpha.empty()
-        metric_err = col_err.empty()
+        metric_epoch = col_epoch.empty(); metric_loss = col_loss.empty()
+        metric_alpha = col_alpha.empty(); metric_err = col_err.empty()
+        chart_placeholder = st.empty(); progress_bar = st.progress(0)
         
-        chart_placeholder = st.empty()
-        progress_bar = st.progress(0)
-        
-        loss_history = []
-        alpha_history = []
+        loss_history = []; alpha_history = []
         
         st.info(f"🔄 正在利用 PINN 求解热传导方程 (Noise={noise_level}%) ...")
         
         start_time = time.time()
-        
-        # 4. 训练循环
         for epoch in range(epochs + 1):
             optimizer.zero_grad()
             u_pred = model(X_train[:, 0:1], X_train[:, 1:2])
             loss_data = torch.mean((u_pred - u_train) ** 2)
             loss_physics = model.physics_loss(X_f[:, 0:1], X_f[:, 1:2])
-            
-            # 加权 Loss
             loss = loss_data + pde_weight * loss_physics
             loss.backward()
             optimizer.step()
             
-            # 记录
-            curr_loss = loss.item()
-            curr_alpha = model.alpha.item()
-            loss_history.append(curr_loss)
-            alpha_history.append(curr_alpha)
+            curr_loss = loss.item(); curr_alpha = model.alpha.item()
+            loss_history.append(curr_loss); alpha_history.append(curr_alpha)
             
-            # 动态刷新 (每 5% 刷新一次)
             if epoch % (epochs // 20) == 0:
                 progress_bar.progress(epoch / epochs)
-                
-                # 计算实时误差
                 err_val = abs(curr_alpha - true_alpha) / true_alpha * 100
-                
-                # 更新指标卡片
                 metric_epoch.metric("训练轮次", f"{epoch}/{epochs}")
                 metric_loss.metric("Total Loss", f"{curr_loss:.2e}")
                 metric_alpha.metric("预测热参数 α", f"{curr_alpha:.5f}")
                 metric_err.metric("参数误差 %", f"{err_val:.2f}%", delta_color="inverse")
-                
-                # 更新曲线图
-                chart_df = pd.DataFrame({
-                    "Predicted Alpha": alpha_history,
-                    "Ground Truth": [true_alpha] * len(alpha_history)
-                })
+                chart_df = pd.DataFrame({"Predicted Alpha": alpha_history, "Ground Truth": [true_alpha] * len(alpha_history)})
                 chart_placeholder.line_chart(chart_df)
 
         end_time = time.time()
         progress_bar.progress(1.0)
         st.success(f"✅ 求解收敛！耗时: {end_time - start_time:.2f}s")
-        
-        # 保存状态
         st.session_state['trained'] = True
         st.session_state['model'] = model
         st.session_state['data'] = (X, T, u_true, X_star)
 
-# ==========================================
-    # 模块 2 & 3: 3D展示 + 结果验证 (上下布局版)
+    # ==========================================
+    # 模块 2 & 3
     # ==========================================
     if st.session_state['trained']:
         st.markdown("---")
         model = st.session_state['model']
         X, T, u_true, X_star = st.session_state['data']
         
-        # -------------------------------------------------------
-        # STEP 2: 3D 电池热场交互 (全宽展示)
-        # -------------------------------------------------------
         st.subheader("Step 2: 3D 电池单体热场透视 (Digital Twin Interaction)")
-        
-        # 增加解释性文字：解释几何映射原理
         st.markdown("""
         > **💡 数字孪生映射原理**：
         > 本模块模拟工业标准的 **21700 圆柱形锂电池**。
         > *   **几何映射**：我们将 PINN 计算的一维径向坐标 $x \in [0, 1]$ 映射为电池半径 $r$。
         > *   **视觉增强**：模型采用了 **90° 剖面切角 (Cutout)** 设计，您可以直接观察到**电池核心 (Core)** 的温度演变。
-        > *   **物理含义**：越靠近中心 ($r=0$) 散热越慢，温度越高（红色）；越靠近表面 ($r=1$) 散热越快，温度越低（蓝色）。
         """)
 
-        # 1. 交互控制栏
         col_ctrl, col_metric = st.columns([1, 2])
-        
         with col_ctrl:
-            st.markdown("##### ⏱️ 时间控制器")
-            t_select = st.slider("演化时间 (Time t)", 0.0, 1.0, 0.5, 0.01, help="拖动滑块查看电池发热过程")
-            
-            # 毫秒级推理测试按钮
-            st.markdown("##### ⚡️ 性能测试")
+            st.markdown("##### ⏱️ 时间控制器 (Time Control)")
+            st.caption("模拟电池充放电过程中的时间推进。拖动滑块可查看不同时刻的热场分布。")
+            t_select = st.slider("演化时间 (Time t)", 0.0, 1.0, 0.5, 0.01)
+            st.markdown("---")
+            st.markdown("##### ⚡️ 性能测试 (Benchmark)")
+            st.caption("点击下方按钮，模拟在车载芯片(MCU)上单次调用 AI 模型计算全场温度的耗时。")
             if st.button("运行 BMS 毫秒级推理测试"):
                 t0 = time.perf_counter()
                 with torch.no_grad():
-                    # 模拟算整个电池的场 (100个网格点)
                     _ = model(torch.rand(100,1), torch.full((100,1), t_select))
                 st.metric("单帧推理耗时", f"{(time.perf_counter()-t0)*1000:.3f} ms")
-                st.caption("✅ 满足车载 <10ms 实时控制要求")
+                st.success("✅ 满足车载 <10ms 实时控制要求")
 
         with col_metric:
-            # 实时推理：计算表面和核心温度
             with torch.no_grad():
                 u_surf = model(torch.tensor([[1.0]]), torch.tensor([[t_select]])).item()
                 u_core = model(torch.tensor([[0.0]]), torch.tensor([[t_select]])).item()
-            
-            st.markdown("##### 🌡️ 关键位置温度监测")
+            st.markdown("##### 🌡️ 关键位置温度监测 (Key Monitoring Points)")
+            st.caption("实时展示电池最热点（核心）与最冷点（表面）的温差，这是 BMS 预警的关键指标。")
             m1, m2, m3 = st.columns(3)
             m1.metric("🔥 核心温度 (Core)", f"{u_core:.3f}", delta=f"{u_core-u_surf:.3f} (+High)")
             m2.metric("🛡️ 表面温度 (Shell)", f"{u_surf:.3f}", delta="Boundary")
             m3.metric("⚠️ 内外温差", f"{u_core-u_surf:.3f}", delta_color="inverse")
 
-        # 2. 3D Plotly 绘图 (全宽)
-        # 生成 3D 数据
-        r = np.linspace(0, 1, 20)     # 增加密度
-        theta = np.linspace(0, 2*np.pi, 40)
-        z = np.linspace(0, 2, 10)
+        # 3D Plotly
+        r = np.linspace(0, 1, 20); theta = np.linspace(0, 2*np.pi, 40); z = np.linspace(0, 2, 10)
         R, THETA, Z = np.meshgrid(r, theta, z)
-        
-        # 切角 logic
         mask = (THETA < 1.5 * np.pi)
         R, THETA, Z = R[mask], THETA[mask], Z[mask]
-        
-        # 坐标转换
-        X_3d = R * np.cos(THETA)
-        Y_3d = R * np.sin(THETA)
-        Z_3d = Z
-        
-        # 推理颜色
+        X_3d = R * np.cos(THETA); Y_3d = R * np.sin(THETA); Z_3d = Z
         r_flat = torch.tensor(R.flatten()[:, None], dtype=torch.float32)
         t_flat = torch.full_like(r_flat, t_select)
-        with torch.no_grad():
-            u_val = model(r_flat, t_flat).numpy().flatten()
+        with torch.no_grad(): u_val = model(r_flat, t_flat).numpy().flatten()
         
-        # Plotly 画图
         fig = go.Figure(data=[go.Scatter3d(
-            x=X_3d.flatten(), y=Y_3d.flatten(), z=Z_3d.flatten(),
-            mode='markers',
+            x=X_3d.flatten(), y=Y_3d.flatten(), z=Z_3d.flatten(), mode='markers',
             marker=dict(size=4, color=u_val, colorscale='Jet', opacity=0.9, colorbar=dict(title="Temp u(x,t)"))
         )])
-        fig.update_layout(
-            title=dict(text=f"21700 电池单体热分布 (t={t_select:.2f})", x=0.5),
-            scene=dict(
-                xaxis=dict(visible=False), yaxis=dict(visible=False), zaxis=dict(visible=False),
-                aspectmode='data' # 保持比例
-            ),
-            margin=dict(l=0, r=0, b=0, t=30), height=500
-        )
+        fig.update_layout(title=dict(text=f"21700 电池单体热分布 (t={t_select:.2f})", x=0.5), scene=dict(xaxis=dict(visible=False), yaxis=dict(visible=False), zaxis=dict(visible=False), aspectmode='data'), margin=dict(l=0, r=0, b=0, t=30), height=500)
         st.plotly_chart(fig, use_container_width=True)
 
         st.markdown("---")
-
         # -------------------------------------------------------
-        # STEP 3: 精度验证报告 (全宽展示)
+        # STEP 3: 精度验证报告 (Accuracy Validation)
         # -------------------------------------------------------
         st.subheader("Step 3: 精度验证报告 (Accuracy Validation)")
-        st.markdown("通过对比 PINN 预测值与 FEM 真值（Ground Truth），验证“虚拟传感器”的可信度。")
+        
+        # --- 新增：解释真值来源 ---
+        st.info("""
+        **🤔 疑问：既然是反演未知参数，这里的“真值 (Ground Truth)”从哪来？**
+        
+        *   **实验逻辑**：本演示采用**“孪生实验 (Twin Experiment)”**方法。
+        *   **上帝视角**：我们在后台设定了真实的 $\\alpha=0.01$ 并生成了理论温度场作为**“标准答案”**（即 Ground Truth）。
+        *   **盲盒测试**：训练时，我们向 AI **隐藏**了真实参数（给它错误的初值），仅提供带噪观测数据。
+        *   **验证目的**：此处展示真值，是为了与 AI 的推理结果进行**比对**，证明在“未知参数”的情况下，算法依然能精准还原物理真相。
+        """)
         
         # 1. 计算误差
         X_all = torch.tensor(X_star, dtype=torch.float32).to(device)
@@ -368,6 +352,7 @@ with tab3:
         
         u_true_flat = u_true.flatten()
         u_pred_flat = u_pred_all.flatten()
+        # L2 相对误差公式：||u_true - u_pred|| / ||u_true||
         l2_error = np.linalg.norm(u_true_flat - u_pred_flat) / np.linalg.norm(u_true_flat)
         final_alpha_err = abs(model.alpha.item() - true_alpha)/true_alpha * 100
         
@@ -375,29 +360,28 @@ with tab3:
         col_v1, col_v2, col_v3 = st.columns(3)
         col_v1.metric("📊 全场 L2 相对误差", f"{l2_error:.2%}", "精度优异")
         col_v2.metric("🎯 参数反演误差 (SOH)", f"{final_alpha_err:.2f}%", "辨识准确")
-        col_v3.info("**结论**：在含噪工况下，模型不仅还原了温度场，还精准捕捉了物理参数。")
+        col_v3.success(f"**结论**：AI 成功在未知情况下反推出了 $\\alpha$，且温度场误差 <{l2_error*100:.1f}%，验证通过。")
 
-        # 3. 2D 热力图对比 (横向排列)
+        # 3. 2D 热力图对比
         st.write("📉 **详细误差分布热力图**")
         u_pred_grid = u_pred_all.reshape(X.shape)
         err_map = np.abs(u_true - u_pred_grid)
         
-        # 使用 Matplotlib 画 3 张并排的图，视野更开阔
         fig_val, ax = plt.subplots(1, 3, figsize=(15, 4))
         
-        # 真值
+        # Ground Truth
         c1 = ax[0].pcolormesh(T, X, u_true, cmap='jet', shading='auto')
-        ax[0].set_title("Ground Truth (FEM)")
+        ax[0].set_title("Ground Truth (Theoretical)") # 这里的标题改一下，强调是理论值
         ax[0].set_xlabel("Time"); ax[0].set_ylabel("Position (Radius)")
         plt.colorbar(c1, ax=ax[0])
         
-        # 预测
+        # Prediction
         c2 = ax[1].pcolormesh(T, X, u_pred_grid, cmap='jet', shading='auto')
-        ax[1].set_title("PINN Prediction")
+        ax[1].set_title("PINN Prediction (Inferred)") # 强调是反推出来的
         ax[1].set_xlabel("Time"); ax[1].set_yticks([])
         plt.colorbar(c2, ax=ax[1])
         
-        # 误差
+        # Error
         c3 = ax[2].pcolormesh(T, X, err_map, cmap='inferno', shading='auto')
         ax[2].set_title(f"Abs Error (Max={np.max(err_map):.2e})")
         ax[2].set_xlabel("Time"); ax[2].set_yticks([])
